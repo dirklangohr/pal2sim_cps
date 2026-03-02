@@ -14,6 +14,10 @@ Output: Activity Class (Multi-class / Multi-label)
 
 Metric: Matthews Correlation Coefficient (MCC)
 
+Note:
+Even though the dataset contains fairly granular activity labels, the evaluation will be performed on a coarser level (superclasses!).
+The mapping is done automatically while preprocessing the data. You don't need to worry about it.
+
 ## 🚀 Getting Started
 1. Installation
 Clone the repository and install the dependencies. We recommend using a virtual environment (Python 3.12+).
