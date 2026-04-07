@@ -41,6 +41,7 @@ class DataHandler:
         data_values = df[sensor_cols].values
         label_values = df[label_cols].values
 
+        # sliding_window_view is a numpy function
         X_view = sliding_window_view(data_values, window_shape=seq_len, axis=0)
 
         y_start_index = seq_len - 1
@@ -136,7 +137,14 @@ class DataHandler:
         test_df = self._get_merged_data(test_metadata)
         validation_df = self._get_merged_data(validation_metadata)
 
-        train_df = self._clean(train_df)
+        # --- CAP DATASET SIZES DURING DEVELOPMENT ---
+        # Keep every 20th sample because datas is time series data
+        jump_size: int = 20
+        train_df = train_df.iloc[::jump_size, :]
+        test_df = test_df.iloc[::jump_size, :]
+        validation_df = validation_df.iloc[::jump_size, :]
+
+        train_df: pd.DataFrame = self._clean(train_df)
         test_df = self._clean(test_df)
         validation_df = self._clean(validation_df)
 
@@ -158,7 +166,9 @@ class DataHandler:
         validation_df[self.config.data.sensor_cols] = self.scaler.transform(validation_df[self.config.data.sensor_cols])
         test_df[self.config.data.sensor_cols] = self.scaler.transform(test_df[self.config.data.sensor_cols])
 
-
+        # print(train_df.keys())
+        # print(train_df.head())
+        # print(train_df.shape)
 
         # --- CREATE DATASETS ---
         train_x, train_y = self._get_challenge_data_numpy(train_df, self.config.prep.seq_len, self.config.data.sensor_cols, final_target_cols)
