@@ -141,10 +141,6 @@ class DataHandler:
     def get_data_loaders(self):
         train_df, validation_df, test_df, final_target_cols = self.load_dataframes()
 
-        # print(train_df.keys())
-        # print(train_df.head())
-        # print(train_df.shape)
-
         # --- CREATE DATASETS ---
         test_x, test_y, train_x, train_y, val_x, val_y = self._make_default_datasets(final_target_cols, test_df,
                                                                                      train_df, validation_df)
@@ -152,6 +148,15 @@ class DataHandler:
         return (train_x, train_y), (val_x, val_y), (test_x, test_y), final_target_cols
 
     def load_dataframes(self) -> tuple[DataFrame, DataFrame, DataFrame, list]:
+        """
+        Returns: train_df, validation_df, test_df, final_data_columns
+
+        Each dataframe has the following columns:
+        'time', 'Acc.x', 'Acc.y', 'Acc.z', 'Gyro.x', 'Gyro.y', 'Gyro.z', 'Baro.x', 'No loading', 'Driving(straight)',
+        'Driving(curve)', 'Lifting(raising)', 'Lifting(lowering)', 'Stationary processes', 'Turntable wrapping'
+
+        Time is the timestep. Acc, Gyro and Baro are sensors, while the others are one-hot encoded labels.
+        """
         test_df, train_df, validation_df = self._load_to_df()
 
         # --- CAP DATASET SIZES DURING DEVELOPMENT ---
