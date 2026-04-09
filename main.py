@@ -3,6 +3,7 @@ import random
 import numpy as np
 
 from utils.config import Config
+from utils.plotting import plot_gyroscope_3d, plot_acceleration_3d
 from data_handler import DataHandler
 from classificators.dummy_classifier import DummyClassifier
 from classificators.random_forest_classifier import RandomForestClassifierSK
@@ -38,6 +39,8 @@ if __name__ == '__main__':
 
         # train, val, test, target_vals = datahandler.get_data_loaders()
         train, val, test, target_vals = datahandler.load_dataframes()
+        plot_acceleration_3d(train.sample(n=5000))
+        plot_gyroscope_3d(train.sample(n=5000))
 
         # just to get an insight into the data
         # plot_class_distribution(train[1], target_vals)
