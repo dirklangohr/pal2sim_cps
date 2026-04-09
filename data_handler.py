@@ -4,7 +4,6 @@ from typing import Any
 import pandas as pd
 import requests
 import tqdm
-from numpy import dtype, ndarray
 from numpy.lib._stride_tricks_impl import sliding_window_view
 from pandas import DataFrame
 from sklearn.preprocessing import MinMaxScaler
@@ -19,6 +18,16 @@ def clean(df):
     cols_to_drop = ["Error", "Synchronization", "None", "transportation", "container"]
     df = df.drop(columns=[c for c in cols_to_drop if c in df.columns], errors='ignore')
     return df.reset_index(drop=True)
+
+
+def _reduce_train_size(test_df: DataFrame, train_df: DataFrame,
+                       validation_df: DataFrame) -> tuple[Any, Any, Any]:
+    # Keep every 20th sample because datas is time series data
+    jump_size: int = 20
+    train_df = train_df.iloc[::jump_size, :]
+    test_df = test_df.iloc[::jump_size, :]
+    validation_df = validation_df.iloc[::jump_size, :]
+    return test_df, train_df, validation_df
 
 
 class DataHandler:
@@ -130,14 +139,23 @@ class DataHandler:
         return df
 
     def get_data_loaders(self):
+        train_df, validation_df, test_df, final_target_cols = self.load_dataframes()
+
+        # print(train_df.keys())
+        # print(train_df.head())
+        # print(train_df.shape)
+
+        # --- CREATE DATASETS ---
+        test_x, test_y, train_x, train_y, val_x, val_y = self._make_default_datasets(final_target_cols, test_df,
+                                                                                     train_df, validation_df)
+
+        return (train_x, train_y), (val_x, val_y), (test_x, test_y), final_target_cols
+
+    def load_dataframes(self) -> tuple[DataFrame, DataFrame, DataFrame, list]:
         test_df, train_df, validation_df = self._load_to_df()
 
         # --- CAP DATASET SIZES DURING DEVELOPMENT ---
-        # Keep every 20th sample because datas is time series data
-        jump_size: int = 20
-        train_df = train_df.iloc[::jump_size, :]
-        test_df = test_df.iloc[::jump_size, :]
-        validation_df = validation_df.iloc[::jump_size, :]
+        test_df, train_df, validation_df = _reduce_train_size(test_df, train_df, validation_df)
 
         test_df, train_df, validation_df = self._clean_dataframes(test_df, train_df, validation_df)
 
@@ -153,16 +171,7 @@ class DataHandler:
 
         # --- SCALING ---
         self._apply_scaling(test_df, train_df, validation_df)
-
-        # print(train_df.keys())
-        # print(train_df.head())
-        # print(train_df.shape)
-
-        # --- CREATE DATASETS ---
-        test_x, test_y, train_x, train_y, val_x, val_y = self._make_default_datasets(final_target_cols, test_df,
-                                                                                     train_df, validation_df)
-
-        return (train_x, train_y), (val_x, val_y), (test_x, test_y), final_target_cols
+        return train_df, validation_df, test_df, final_target_cols
 
     def _make_default_datasets(self, final_target_cols: list,
                                test_df: DataFrame, train_df: DataFrame, validation_df):
