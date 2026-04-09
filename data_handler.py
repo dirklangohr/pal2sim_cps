@@ -1,9 +1,12 @@
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 import requests
 import tqdm
+from numpy import dtype, ndarray
 from numpy.lib._stride_tricks_impl import sliding_window_view
+from pandas import DataFrame
 from sklearn.preprocessing import MinMaxScaler
 
 
@@ -11,10 +14,12 @@ def get_merged_data(meta_subset):
     merged = [row["data"] for _, row in meta_subset.iterrows()]
     return pd.concat(merged, ignore_index=True) if merged else pd.DataFrame()
 
+
 def clean(df):
-    cols_to_drop = ["Error", "Synchronization", "None","transportation","container"]
+    cols_to_drop = ["Error", "Synchronization", "None", "transportation", "container"]
     df = df.drop(columns=[c for c in cols_to_drop if c in df.columns], errors='ignore')
     return df.reset_index(drop=True)
+
 
 class DataHandler:
     def __init__(self, config):
@@ -32,7 +37,7 @@ class DataHandler:
 
     @staticmethod
     def _clean(df):
-        cols_to_drop = ["Error", "Synchronization", "None","transportation","container"]
+        cols_to_drop = ["Error", "Synchronization", "None", "transportation", "container"]
         df = df.drop(columns=[c for c in cols_to_drop if c in df.columns], errors='ignore')
         return df.reset_index(drop=True)
 
@@ -45,7 +50,7 @@ class DataHandler:
         X_view = sliding_window_view(data_values, window_shape=seq_len, axis=0)
 
         y_start_index = seq_len - 1
-        y_view = label_values[y_start_index : y_start_index + len(X_view)]
+        y_view = label_values[y_start_index: y_start_index + len(X_view)]
 
         min_len = min(len(X_view), len(y_view))
         X_view = X_view[:min_len]
@@ -104,6 +109,7 @@ class DataHandler:
             if dest_path.exists():
                 dest_path.unlink()
             raise e
+
     def _apply_superclass_mapping(self, df, mapping):
         df = df.copy()
         target_superclasses = list(set(mapping.values()))
@@ -124,8 +130,66 @@ class DataHandler:
         return df
 
     def get_data_loaders(self):
+        test_df, train_df, validation_df = self._load_to_df()
+
+        # --- CAP DATASET SIZES DURING DEVELOPMENT ---
+        # Keep every 20th sample because datas is time series data
+        jump_size: int = 20
+        train_df = train_df.iloc[::jump_size, :]
+        test_df = test_df.iloc[::jump_size, :]
+        validation_df = validation_df.iloc[::jump_size, :]
+
+        test_df, train_df, validation_df = self._clean_dataframes(test_df, train_df, validation_df)
+
+        # --- Apply superclasses ---
+        train_df = self._apply_superclass_mapping(train_df, self.config.data.superclass_mapping)
+        validation_df = self._apply_superclass_mapping(validation_df, self.config.data.superclass_mapping)
+        test_df = self._apply_superclass_mapping(test_df, self.config.data.superclass_mapping)
+        unique_superclasses = set(self.config.data.superclass_mapping.values())
+        final_target_cols = sorted(list(unique_superclasses))
+
+        self.config.IN_CHANNELS = len(self.config.data.sensor_cols)
+        # final_target_cols = self.config.data.label_cols
+
+        # --- SCALING ---
+        self._apply_scaling(test_df, train_df, validation_df)
+
+        # print(train_df.keys())
+        # print(train_df.head())
+        # print(train_df.shape)
+
+        # --- CREATE DATASETS ---
+        test_x, test_y, train_x, train_y, val_x, val_y = self._make_default_datasets(final_target_cols, test_df,
+                                                                                     train_df, validation_df)
+
+        return (train_x, train_y), (val_x, val_y), (test_x, test_y), final_target_cols
+
+    def _make_default_datasets(self, final_target_cols: list,
+                               test_df: DataFrame, train_df: DataFrame, validation_df):
+        train_x, train_y = self._get_challenge_data_numpy(train_df, self.config.prep.seq_len,
+                                                          self.config.data.sensor_cols, final_target_cols)
+        val_x, val_y = self._get_challenge_data_numpy(validation_df, self.config.prep.seq_len,
+                                                      self.config.data.sensor_cols, final_target_cols)
+        test_x, test_y = self._get_challenge_data_numpy(test_df, self.config.prep.seq_len, self.config.data.sensor_cols,
+                                                        final_target_cols)
+        return test_x, test_y, train_x, train_y, val_x, val_y
+
+    def _apply_scaling(self, test_df, train_df, validation_df):
+        self.scaler = MinMaxScaler(feature_range=(-1, 1))
+        train_df[self.config.data.sensor_cols] = self.scaler.fit_transform(train_df[self.config.data.sensor_cols])
+        validation_df[self.config.data.sensor_cols] = self.scaler.transform(validation_df[self.config.data.sensor_cols])
+        test_df[self.config.data.sensor_cols] = self.scaler.transform(test_df[self.config.data.sensor_cols])
+
+    def _clean_dataframes(self, test_df: DataFrame, train_df: DataFrame, validation_df) -> tuple[
+        DataFrame, DataFrame, DataFrame]:
+        train_df: pd.DataFrame = self._clean(train_df)
+        test_df = self._clean(test_df)
+        validation_df = self._clean(validation_df)
+        return test_df, train_df, validation_df
+
+    def _load_to_df(self) -> tuple[DataFrame, DataFrame, DataFrame]:
         print("Starting data preparation...", flush=True)
-        #df_final = self.load_data_set()
+        # df_final = self.load_data_set()
 
         test_mask = self.data['experiment'] == self.config.data.test_experiment_id
         validation_mask = self.data['experiment'] == self.config.data.validation_experiment_id
@@ -136,44 +200,4 @@ class DataHandler:
         train_df = self._get_merged_data(train_metadata)
         test_df = self._get_merged_data(test_metadata)
         validation_df = self._get_merged_data(validation_metadata)
-
-        # --- CAP DATASET SIZES DURING DEVELOPMENT ---
-        # Keep every 20th sample because datas is time series data
-        jump_size: int = 20
-        train_df = train_df.iloc[::jump_size, :]
-        test_df = test_df.iloc[::jump_size, :]
-        validation_df = validation_df.iloc[::jump_size, :]
-
-        train_df: pd.DataFrame = self._clean(train_df)
-        test_df = self._clean(test_df)
-        validation_df = self._clean(validation_df)
-
-
-        train_df = self._apply_superclass_mapping(train_df, self.config.data.superclass_mapping)
-        validation_df = self._apply_superclass_mapping(validation_df, self.config.data.superclass_mapping)
-        test_df = self._apply_superclass_mapping(test_df, self.config.data.superclass_mapping)
-        unique_superclasses = set(self.config.data.superclass_mapping.values())
-        final_target_cols = sorted(list(unique_superclasses))
-
-
-        self.config.IN_CHANNELS = len(self.config.data.sensor_cols)
-        #final_target_cols = self.config.data.label_cols
-
-
-        # --- SCALING ---
-        self.scaler = MinMaxScaler(feature_range=(-1, 1))
-        train_df[self.config.data.sensor_cols] = self.scaler.fit_transform(train_df[self.config.data.sensor_cols])
-        validation_df[self.config.data.sensor_cols] = self.scaler.transform(validation_df[self.config.data.sensor_cols])
-        test_df[self.config.data.sensor_cols] = self.scaler.transform(test_df[self.config.data.sensor_cols])
-
-        # print(train_df.keys())
-        # print(train_df.head())
-        # print(train_df.shape)
-
-        # --- CREATE DATASETS ---
-        train_x, train_y = self._get_challenge_data_numpy(train_df, self.config.prep.seq_len, self.config.data.sensor_cols, final_target_cols)
-        val_x, val_y = self._get_challenge_data_numpy(validation_df, self.config.prep.seq_len, self.config.data.sensor_cols, final_target_cols)
-        test_x, test_y = self._get_challenge_data_numpy(test_df, self.config.prep.seq_len, self.config.data.sensor_cols, final_target_cols)
-
-        return (train_x, train_y), (val_x, val_y), (test_x, test_y), final_target_cols
-
+        return test_df, train_df, validation_df
