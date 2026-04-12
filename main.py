@@ -82,7 +82,7 @@ if __name__ == '__main__':
             test_mcc = calculate_mcc_multilabel(test_y_hat, test[1])
             test_mccs.append(test_mcc)
             train_mcc = calculate_mcc_multilabel(train_y_hat, train[1])
-            train_mccs.append(test_mcc)
+            train_mccs.append(train_mcc)
 
         except Exception as e:
             print(f"Fold {fold} failed with error: {e}")

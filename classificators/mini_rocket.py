@@ -24,7 +24,7 @@ class MiniRocketClassifier:
         X_train, y_train = train
         X_val, y_val = val
         self.rocket_pipeline.fit(X_train, y_train)
-        return self.rocket_pipeline.predict(X_val).to_numpy()
+        return self.rocket_pipeline.predict(X_train).to_numpy()
 
     def predict(self, X: np.ndarray):
         return self.rocket_pipeline.predict(X).to_numpy()
