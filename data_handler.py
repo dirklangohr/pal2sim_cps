@@ -21,13 +21,30 @@ def clean(df):
 
 
 def _reduce_train_size(test_df: DataFrame, train_df: DataFrame,
-                       validation_df: DataFrame) -> tuple[Any, Any, Any]:
+                       validation_df: DataFrame, skipsize: int = 20) -> tuple[Any, Any, Any]:
     # Keep every 20th sample because datas is time series data
-    jump_size: int = 20
-    train_df = train_df.iloc[::jump_size, :]
-    test_df = test_df.iloc[::jump_size, :]
-    validation_df = validation_df.iloc[::jump_size, :]
+    train_df = train_df.iloc[::skipsize, :]
+    test_df = test_df.iloc[::skipsize, :]
+    validation_df = validation_df.iloc[::skipsize, :]
     return test_df, train_df, validation_df
+
+
+def get_challenge_data_numpy(df, seq_len, sensor_cols, label_cols):
+
+    data_values = df[sensor_cols].values
+    label_values = df[label_cols].values
+
+    # sliding_window_view is a numpy function
+    X_view = sliding_window_view(data_values, window_shape=seq_len, axis=0)
+
+    y_start_index = seq_len - 1
+    y_view = label_values[y_start_index: y_start_index + len(X_view)]
+
+    min_len = min(len(X_view), len(y_view))
+    X_view = X_view[:min_len]
+    y_view = y_view[:min_len]
+
+    return X_view, y_view
 
 
 class DataHandler:
@@ -49,23 +66,6 @@ class DataHandler:
         cols_to_drop = ["Error", "Synchronization", "None", "transportation", "container"]
         df = df.drop(columns=[c for c in cols_to_drop if c in df.columns], errors='ignore')
         return df.reset_index(drop=True)
-
-    def _get_challenge_data_numpy(self, df, seq_len, sensor_cols, label_cols):
-
-        data_values = df[sensor_cols].values
-        label_values = df[label_cols].values
-
-        # sliding_window_view is a numpy function
-        X_view = sliding_window_view(data_values, window_shape=seq_len, axis=0)
-
-        y_start_index = seq_len - 1
-        y_view = label_values[y_start_index: y_start_index + len(X_view)]
-
-        min_len = min(len(X_view), len(y_view))
-        X_view = X_view[:min_len]
-        y_view = y_view[:min_len]
-
-        return X_view, y_view
 
     def _load_data_set(self):
         """
@@ -138,8 +138,8 @@ class DataHandler:
 
         return df
 
-    def get_data_loaders(self):
-        train_df, validation_df, test_df, final_target_cols = self.load_dataframes()
+    def get_data_loaders(self, skipsize: int = 20):
+        train_df, validation_df, test_df, final_target_cols = self.load_dataframes(skipsize)
 
         # --- CREATE DATASETS ---
         test_x, test_y, train_x, train_y, val_x, val_y = self._make_default_datasets(final_target_cols, test_df,
@@ -147,7 +147,21 @@ class DataHandler:
 
         return (train_x, train_y), (val_x, val_y), (test_x, test_y), final_target_cols
 
-    def load_dataframes(self) -> tuple[DataFrame, DataFrame, DataFrame, list]:
+    def get_minirocket_data(self, skipsize: int = 20):
+        seq_length: int = 300
+
+        train_df, validation_df, test_df, final_target_cols = self.load_dataframes(skipsize)
+        train_x, train_y = get_challenge_data_numpy(train_df, int(seq_length/skipsize),
+                                                    self.config.data.sensor_cols, final_target_cols)
+        val_x, val_y = get_challenge_data_numpy(validation_df, int(seq_length/skipsize),
+                                                    self.config.data.sensor_cols, final_target_cols)
+        test_x, test_y = get_challenge_data_numpy(test_df, int(seq_length/skipsize),
+                                                    self.config.data.sensor_cols, final_target_cols)
+
+        return (train_x, train_y), (val_x, val_y), (test_x, test_y), final_target_cols
+
+
+    def load_dataframes(self, skipsize: int = 20) -> tuple[DataFrame, DataFrame, DataFrame, list]:
         """
         Returns: train_df, validation_df, test_df, final_data_columns
 
@@ -160,7 +174,7 @@ class DataHandler:
         test_df, train_df, validation_df = self._load_to_df()
 
         # --- CAP DATASET SIZES DURING DEVELOPMENT ---
-        test_df, train_df, validation_df = _reduce_train_size(test_df, train_df, validation_df)
+        test_df, train_df, validation_df = _reduce_train_size(test_df, train_df, validation_df, skipsize)
 
         test_df, train_df, validation_df = self._clean_dataframes(test_df, train_df, validation_df)
 
@@ -180,12 +194,12 @@ class DataHandler:
 
     def _make_default_datasets(self, final_target_cols: list,
                                test_df: DataFrame, train_df: DataFrame, validation_df):
-        train_x, train_y = self._get_challenge_data_numpy(train_df, self.config.prep.seq_len,
-                                                          self.config.data.sensor_cols, final_target_cols)
-        val_x, val_y = self._get_challenge_data_numpy(validation_df, self.config.prep.seq_len,
-                                                      self.config.data.sensor_cols, final_target_cols)
-        test_x, test_y = self._get_challenge_data_numpy(test_df, self.config.prep.seq_len, self.config.data.sensor_cols,
-                                                        final_target_cols)
+        train_x, train_y = get_challenge_data_numpy(train_df, self.config.prep.seq_len,
+                                                    self.config.data.sensor_cols, final_target_cols)
+        val_x, val_y = get_challenge_data_numpy(validation_df, self.config.prep.seq_len,
+                                                self.config.data.sensor_cols, final_target_cols)
+        test_x, test_y = get_challenge_data_numpy(test_df, self.config.prep.seq_len, self.config.data.sensor_cols,
+                                                  final_target_cols)
         return test_x, test_y, train_x, train_y, val_x, val_y
 
     def _apply_scaling(self, test_df, train_df, validation_df):
